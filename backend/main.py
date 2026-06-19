@@ -211,7 +211,7 @@ def run_synthesis_job(
     job = JOBS[job_id]
     job["logs"].append(f"[INFO] [{time.strftime('%X')}] Reading document...")
     
-    chunk_files = []
+    mp3_files = []
     try:
         # Split text into chunks
         chunks = split_text(text, max_chars)
@@ -230,68 +230,63 @@ def run_synthesis_job(
             # Cancellation verification check
             if job["status"] == "cancelled":
                 job["logs"].append(f"[WARNING] [{time.strftime('%X')}] Task aborted by user. Cleaning up files...")
-                for f in chunk_files:
+                for f in mp3_files:
                     if os.path.exists(f):
                         try: os.remove(f)
                         except: pass
                 return
             
             job["logs"].append(f"[INFO] [{time.strftime('%X')}] Synthesizing chunk {i + 1}/{total_chunks}...")
-            chunk_path = os.path.join(chunks_dir, f"job_{job_id}_chunk_{i:04d}.wav")
+            chunk_wav = os.path.join(chunks_dir, f"job_{job_id}_chunk_{i:04d}.wav")
+            chunk_mp3 = os.path.join(chunks_dir, f"job_{job_id}_chunk_{i:04d}.mp3")
             
             pcm = extract_pcm(voice.synthesize(chunk_text))
-            with wave.open(chunk_path, "wb") as wf:
+            with wave.open(chunk_wav, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(voice.config.sample_rate)
                 wf.writeframes(pcm)
                 
-            chunk_files.append(chunk_path)
+            # Convert this small chunk to MP3 immediately (low memory footprint)
+            audio = AudioSegment.from_wav(chunk_wav)
+            audio = audio.set_channels(1)
+            audio.export(chunk_mp3, format="mp3", bitrate="96k")
+            
+            # Clean up the WAV file immediately
+            try:
+                os.remove(chunk_wav)
+            except Exception as e:
+                logger.warning(f"Could not remove WAV chunk file {chunk_wav}: {e}")
+                
+            mp3_files.append(chunk_mp3)
             job["chunksProcessed"] = i + 1
             
-            # --- RENDER STABILITY ENHANCEMENTS START ---
             # Sleep slightly between chunks to prevent CPU spike crashes (Bad Gateway 502/503 errors)
             time.sleep(0.3)
-            # Run garbage collection explicitly to keep memory footprint under 512MB
             import gc
             gc.collect()
-            # --- RENDER STABILITY ENHANCEMENTS END ---
             
         # Final cancellation check before merging
         if job["status"] == "cancelled":
             job["logs"].append(f"[WARNING] [{time.strftime('%X')}] Task aborted by user. Cleaning up files...")
-            for f in chunk_files:
+            for f in mp3_files:
                 if os.path.exists(f):
                     try: os.remove(f)
                     except: pass
             return
 
-        # Merge WAV Chunks
-        job["logs"].append(f"[INFO] [{time.strftime('%X')}] Merging chunks...")
-        temp_wav = os.path.join(target_output_dir, f"{filename_base}_temp_{job_id}.wav")
+        # Concatenate MP3 Chunks directly (binary append)
+        job["logs"].append(f"[INFO] [{time.strftime('%X')}] Concatenating MP3 chunks...")
         final_mp3 = os.path.join(target_output_dir, f"{filename_base}.mp3")
         
-        with wave.open(temp_wav, "wb") as out_wav:
-            with wave.open(chunk_files[0], "rb") as first:
-                out_wav.setparams(first.getparams())
-            for file in chunk_files:
-                with wave.open(file, "rb") as wf:
-                    out_wav.writeframes(wf.readframes(wf.getnframes()))
+        with open(final_mp3, "wb") as outfile:
+            for file in mp3_files:
+                with open(file, "rb") as infile:
+                    outfile.write(infile.read())
                 try:
                     os.remove(file)
                 except Exception as e:
                     logger.warning(f"Could not remove chunk file {file}: {e}")
-                    
-        # Export to optimized 96k Mono MP3
-        job["logs"].append(f"[INFO] [{time.strftime('%X')}] Encoding merged WAV to optimized 96k MP3...")
-        audio = AudioSegment.from_wav(temp_wav)
-        audio = audio.set_channels(1)
-        audio.export(final_mp3, format="mp3", bitrate="96k")
-        
-        try:
-            os.remove(temp_wav)
-        except:
-            pass
             
         end_time = time.time()
         time_elapsed = round(end_time - job["startTimeRaw"], 2)
@@ -313,7 +308,7 @@ def run_synthesis_job(
         job["status"] = "failed"
         job["error"] = str(e)
         job["logs"].append(f"[ERROR] [{time.strftime('%X')}] Synthesis failed: {str(e)}")
-        for f in chunk_files:
+        for f in mp3_files:
             if os.path.exists(f):
                 try: os.remove(f)
                 except: pass
