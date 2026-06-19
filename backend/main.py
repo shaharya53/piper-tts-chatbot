@@ -119,6 +119,10 @@ def load_voice_optimized(model_path: str, config_path: str = None) -> PiperVoice
     sess_options.inter_op_num_threads = 1
     sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
     
+    # Disable memory arena and force system allocator to prevent C++ memory caching bloat (keeps memory under 512MB)
+    sess_options.enable_cpu_mem_arena = False
+    sess_options.add_session_config_entry("session.use_env_allocators", "1")
+    
     providers = ["CPUExecutionProvider"]
     
     session = onnxruntime.InferenceSession(
@@ -260,6 +264,10 @@ def run_synthesis_job(
                 
             mp3_files.append(chunk_mp3)
             job["chunksProcessed"] = i + 1
+            
+            # Explicitly delete variables to free references
+            del pcm
+            del audio
             
             # Sleep slightly between chunks to prevent CPU spike crashes (Bad Gateway 502/503 errors)
             time.sleep(0.3)
