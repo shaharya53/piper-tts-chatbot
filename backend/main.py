@@ -114,11 +114,9 @@ def load_voice_optimized(model_path: str, config_path: str = None) -> PiperVoice
     sess_options = onnxruntime.SessionOptions()
     sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
     
-    # Restrict thread pools to CPU physical core configurations (prevents thread contest)
-    cores = multiprocessing.cpu_count()
-    num_threads = max(1, min(4, cores))
-    sess_options.intra_op_num_threads = num_threads
-    sess_options.inter_op_num_threads = num_threads
+    # Restrict thread pools to 1 in cloud container environments (avoids CPU limit freezes/crashes)
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
     sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
     
     providers = ["CPUExecutionProvider"]
@@ -250,6 +248,14 @@ def run_synthesis_job(
                 
             chunk_files.append(chunk_path)
             job["chunksProcessed"] = i + 1
+            
+            # --- RENDER STABILITY ENHANCEMENTS START ---
+            # Sleep slightly between chunks to prevent CPU spike crashes (Bad Gateway 502/503 errors)
+            time.sleep(0.3)
+            # Run garbage collection explicitly to keep memory footprint under 512MB
+            import gc
+            gc.collect()
+            # --- RENDER STABILITY ENHANCEMENTS END ---
             
         # Final cancellation check before merging
         if job["status"] == "cancelled":
