@@ -31,6 +31,8 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
 }) => {
   const [file, setFile] = useState<File | null>(null);
   const [fileChars, setFileChars] = useState<number | null>(null);
+  const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
+  const [rawText, setRawText] = useState('');
   const [outputPath, setOutputPath] = useState('D:\\audio');
   const [filename, setFilename] = useState('');
   
@@ -161,13 +163,20 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
 
   const handleConvert = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || isGenerating || !isBackendOnline) return;
+    const hasInput = inputMode === 'file' ? !!file : !!rawText.trim();
+    if (!hasInput || isGenerating || !isBackendOnline) return;
 
     setSubmitError(null);
     setElapsedSeconds(0); // Reset timer
+
+    const fileToUpload = inputMode === 'file'
+      ? file
+      : new File([rawText], filename ? `${filename}.txt` : "input.txt", { type: "text/plain" });
+
+    if (!fileToUpload) return;
     
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', fileToUpload);
     if (outputPath) formData.append('outputPath', outputPath);
     if (filename) formData.append('filename', filename);
     formData.append('maxChars', maxChars.toString());
@@ -197,6 +206,7 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
   const handleLocalReset = () => {
     setFileChars(null);
     setFile(null);
+    setRawText('');
     resetJob();
   };
 
@@ -258,7 +268,7 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
   };
 
   // Calculation for synthesis estimation (avg 180 characters per second of CPU processing)
-  const totalCharacters = (activeJob && activeJob.totalChars) || fileChars;
+  const totalCharacters = (activeJob && activeJob.totalChars) || (inputMode === 'file' ? fileChars : rawText.length);
   const estTotalSeconds = totalCharacters ? Math.ceil(totalCharacters / 180) : 0;
   const timeRemaining = isGenerating
     ? Math.max(1, estTotalSeconds - elapsedSeconds)
@@ -270,64 +280,99 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
         {/* Render Dropzone and Settings only if NOT converting/paused, and NO successful result is currently displayed */}
         {!isGenerating && !isPaused && (!activeJob || activeJob.status !== 'success') && (
           <form onSubmit={handleConvert}>
-            {/* File input drag and drop zone */}
-            <div 
-              className={`dropzone ${dragActive ? 'drag-active' : ''}`}
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
-              onClick={triggerFileInput}
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".txt"
-                onChange={handleFileChange}
-                disabled={isGenerating}
-              />
+            {/* Input Mode Selector */}
+            <div className="mode-selector">
+              <button
+                type="button"
+                className={`mode-btn ${inputMode === 'file' ? 'active' : ''}`}
+                onClick={() => setInputMode('file')}
+              >
+                Upload File
+              </button>
+              <button
+                type="button"
+                className={`mode-btn ${inputMode === 'text' ? 'active' : ''}`}
+                onClick={() => setInputMode('text')}
+              >
+                Enter Text directly
+              </button>
+            </div>
 
-              {!file ? (
-                <>
-                  <svg className="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                  </svg>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: '1.05rem', marginBottom: '4px' }}>Drag & drop text file here</p>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>or click to browse (only .txt files)</p>
-                  </div>
-                </>
-              ) : (
-                <div className="file-info-card" onClick={(e) => e.stopPropagation()}>
-                  <svg className="file-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                  </svg>
-                  <div className="file-meta" style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                    <div className="file-name">{file.name}</div>
-                    <div className="file-size" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span>{formatBytes(file.size)}</span>
+            {inputMode === 'file' ? (
+              <div 
+                className={`dropzone ${dragActive ? 'drag-active' : ''}`}
+                onDragEnter={handleDrag}
+                onDragOver={handleDrag}
+                onDragLeave={handleDrag}
+                onDrop={handleDrop}
+                onClick={triggerFileInput}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  accept=".txt"
+                  onChange={handleFileChange}
+                  disabled={isGenerating}
+                />
+
+                {!file ? (
+                  <>
+                    <svg className="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <div>
+                      <p style={{ fontWeight: 600, fontSize: '1.05rem', marginBottom: '4px' }}>Drag & drop text file here</p>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>or click to browse (only .txt files)</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="file-info-card" onClick={(e) => e.stopPropagation()}>
+                    <svg className="file-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <div className="file-meta" style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                      <div className="file-name">{file.name}</div>
+                      <div className="file-size" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span>{formatBytes(file.size)}</span>
+                        {fileChars !== null && (
+                          <>
+                            <span style={{ opacity: 0.3 }}>•</span>
+                            <span>{fileChars.toLocaleString()} characters</span>
+                          </>
+                        )}
+                      </div>
                       {fileChars !== null && (
-                        <>
-                          <span style={{ opacity: 0.3 }}>•</span>
-                          <span>{fileChars.toLocaleString()} characters</span>
-                        </>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 500, marginTop: '2px' }}>
+                          Estimated time: ~{estTotalSeconds} seconds ({Math.ceil(fileChars / maxChars)} parts)
+                        </div>
                       )}
                     </div>
-                    {fileChars !== null && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 500, marginTop: '2px' }}>
-                        Estimated time: ~{estTotalSeconds} seconds ({Math.ceil(fileChars / maxChars)} parts)
-                      </div>
-                    )}
+                    <button type="button" className="remove-file-btn" onClick={removeFile} title="Remove file">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                      </svg>
+                    </button>
                   </div>
-                  <button type="button" className="remove-file-btn" onClick={removeFile} title="Remove file">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <textarea
+                  className="text-input-area"
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  placeholder="Paste or type your text here to convert it into speech..."
+                  disabled={isGenerating}
+                />
+                {rawText.trim().length > 0 && (
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px', display: 'flex', gap: '12px' }}>
+                    <span>Characters: <strong>{rawText.length.toLocaleString()}</strong></span>
+                    <span>Estimated time: <strong>~{estTotalSeconds} seconds</strong> ({Math.ceil(rawText.length / maxChars)} parts)</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Settings Grid */}
             <div className="config-grid">
