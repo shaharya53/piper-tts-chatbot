@@ -267,6 +267,17 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
     return `${minutes}:${seconds}`;
   };
 
+  const getDownloadFilename = () => {
+    if (!activeJob || !activeJob.filename) return 'piper_tts_speech.mp3';
+    const baseName = activeJob.filename;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      if (baseName.startsWith('piper_tts_')) return baseName;
+      return `piper_tts_${baseName}`;
+    }
+    return baseName;
+  };
+
   // Calculation for synthesis estimation (avg 180 characters per second of CPU processing)
   const totalCharacters = (activeJob && activeJob.totalChars) || (inputMode === 'file' ? fileChars : rawText.length);
   const estTotalSeconds = totalCharacters ? Math.ceil(totalCharacters / 180) : 0;
@@ -648,7 +659,7 @@ export const ConverterSection: React.FC<ConverterSectionProps> = ({
                   ))}
                 </div>
 
-                <a href={`${backendUrl}${activeJob.audioUrl}`} download={activeJob.filename} className="download-link">
+                <a href={`${backendUrl}${activeJob.audioUrl}`} download={getDownloadFilename()} className="download-link">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                     <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                   </svg>
